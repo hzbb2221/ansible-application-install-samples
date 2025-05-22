@@ -47,7 +47,7 @@
 
     - name: 获取公网IP
       ansible.builtin.uri:
-        url: https://api.ipify.org
+        url: https://ifconfig.me/ip
         return_content: yes
       register: public_ip
       ignore_errors: yes
