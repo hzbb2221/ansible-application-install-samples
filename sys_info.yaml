@@ -1,0 +1,142 @@
+---
+- name: Collect System Information Report
+  hosts: all
+  become: yes
+  vars:
+    top_process_count: 10  # 可自定义TOP进程数量
+
+  tasks:
+    # 基础系统信息
+    - name: "[OS] 获取系统基础信息"
+      block:
+        - name: 获取发行版信息
+          ansible.builtin.command: "lsb_release -ds || cat /etc/*-release | head -n1 || uname -om"
+          register: os_info
+          changed_when: false
+
+        - name: 显示汇总信息
+          ansible.builtin.debug:
+            msg: |
+              [系统概况]
+              主机名: {{ ansible_hostname }}
+              操作系统: {{ os_info.stdout }}
+              内核版本: {{ ansible_kernel }}
+              启动时间: {{ ansible_date_time.epoch | int | ansible.builtin.strftime('%Y-%m-%d %H:%M:%S') }}
+              运行时间: {{ ansible_uptime.seconds // 86400 }}天{{ (ansible_uptime.seconds % 86400) // 3600 }}小时
+
+    # SSH服务信息
+    - name: "[SSH] 获取SSH服务状态"
+      block:
+        - name: 检查SSHD运行状态
+          ansible.builtin.systemd:
+            name: sshd
+            enabled: yes
+          register: sshd_status
+
+        - name: 获取SSH版本信息
+          ansible.builtin.shell: "sshd -V 2>&1 | grep -Eo '[0-9]+\\.[0-9]+(p[0-9]+)?' | head -1"
+          register: sshd_version
+          changed_when: false
+
+        - name: 显示SSH信息
+          ansible.builtin.debug:
+            msg: |
+              [SSH服务]
+              运行状态: {{ "运行中" if sshd_status.status == "started" else "未运行" }}
+              监听端口: {{ ansible_facts.ssh_listen | default('未检测到') }}
+              协议版本: {{ sshd_version.stdout | default('未知') }}
+              最后登录: lastlog | tail -n+2 | grep -v '**Never logged in**'
+
+    # 硬件资源信息
+    - name: "[HARDWARE] 硬件资源收集"
+      block:
+        - name: 获取CPU信息
+          ansible.builtin.debug:
+            msg: |
+              [CPU信息]
+              型号: {{ ansible_processor[1] if ansible_processor|length >1 else ansible_processor[0] }}
+              核心数: {{ ansible_processor_cores }} 物理 / {{ ansible_processor_vcpus }} 逻辑
+              架构: {{ ansible_architecture }}
+
+        - name: 获取内存信息
+          ansible.builtin.debug:
+            msg: |
+              [内存信息]
+              总量: {{ ansible_memtotal_mb // 1024 }}GB
+              可用: {{ (ansible_memfree_mb + ansible_cached_mb) // 1024 }}GB
+              Swap: {{ ansible_swaptotal_mb // 1024 }}GB
+
+        - name: 获取磁盘信息
+          ansible.builtin.debug:
+            msg: |
+              [存储信息]
+              {% for mount in ansible_mounts %}
+              - 挂载点: {{ mount.mount }}
+                容量: {{ mount.size_total // (1024**3) }}GB
+                可用: {{ mount.size_available // (1024**3) }}GB
+                文件系统: {{ mount.fstype }}
+              {% endfor %}
+
+    # 性能监控
+    - name: "[PERF] 资源占用分析"
+      block:
+        - name: 获取CPU占用TOP{{ top_process_count }}
+          ansible.builtin.shell: |
+            ps -eo pid,user,%cpu,%mem,cmd --sort=-%cpu | head -n {{ top_process_count|int +1 }}
+          register: top_cpu
+          changed_when: false
+
+        - name: 获取内存占用TOP{{ top_process_count }}
+          ansible.builtin.shell: |
+            ps -eo pid,user,%cpu,%mem,cmd --sort=-%mem | head -n {{ top_process_count|int +1 }}
+          register: top_mem
+          changed_when: false
+
+        - name: 显示性能数据
+          ansible.builtin.debug:
+            msg: |
+              [CPU TOP{{ top_process_count }}]
+              {{ top_cpu.stdout_lines | join('\n') }}
+
+              [内存 TOP{{ top_process_count }}]
+              {{ top_mem.stdout_lines | join('\n') }}
+
+    # 网络与用户
+    - name: "[NETWORK] 网络配置检查"
+      block:
+        - name: 收集网络信息
+          ansible.builtin.debug:
+            msg: |
+              [网络配置]
+              默认网关: {{ ansible_default_ipv4.gateway }}
+              DNS服务器: {{ ansible_dns.nameservers | join(', ') }}
+              监听端口:
+              {% for port in ansible_facts.ssh_listen | default([]) %}
+              - {{ port }}
+              {% endfor %}
+
+        - name: 获取连接状态统计
+          ansible.builtin.shell: "ss -s"
+          register: ss_stats
+          changed_when: false
+
+    - name: "[USER] 用户信息审计"
+      block:
+        - name: 获取用户列表
+          ansible.builtin.shell: |
+            getent passwd | awk -F: '$3 >= 1000 {print $1}' | grep -v nobody
+          register: user_list
+          changed_when: false
+
+        - name: 显示特权用户
+          ansible.builtin.shell: "grep -Po '^\\w+(?=:.*:0:)' /etc/passwd"
+          register: super_users
+          changed_when: false
+
+        - name: 显示用户摘要
+          ansible.builtin.debug:
+            msg: |
+              [用户统计]
+              总用户数: {{ user_list.stdout_lines | length }}
+              特权用户: {{ super_users.stdout_lines | join(', ') }}
+              最近登录: last | head -n 5
