@@ -7,7 +7,7 @@
     nginx_version: "latest"
 
   tasks:
-    - name: 确保防火墙已关闭
+    - name: 禁用并停止防火墙服务
       service:
         name: firewalld
         state: stopped
