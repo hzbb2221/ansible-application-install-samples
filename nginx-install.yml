@@ -1,0 +1,106 @@
+---
+- name: 安装并配置Nginx
+  hosts: all
+  become: yes
+  vars:
+    nginx_version: "latest"  # 可指定版本如 1.24.0
+    enable_firewall: true
+    allowed_ports:
+      - 10080
+      - 10443
+
+  tasks:
+    - name: 检测系统发行版
+      ansible.builtin.setup:
+        filter: ansible_distribution*
+      register: os_info
+
+    - name: 添加Nginx官方仓库 (Debian/Ubuntu)
+      block:
+        - name: 安装依赖
+          ansible.builtin.apt:
+            name: 
+              - curl
+              - gnupg2
+              - ca-certificates
+              - lsb-release
+              - debian-archive-keyring
+            state: present
+            update_cache: yes
+
+        - name: 导入官方GPG密钥
+          ansible.builtin.apt_key:
+            url: "https://nginx.org/keys/nginx_signing.key"
+            state: present
+
+        - name: 添加稳定版仓库
+          ansible.builtin.apt_repository:
+            repo: "deb http://nginx.org/packages/{{ 'ubuntu' if os_info.ansible_distribution == 'Ubuntu' else 'debian' }} {{ os_info.ansible_distribution_release }} nginx"
+            state: present
+            filename: nginx-official
+
+      when: os_info.ansible_distribution in ['Debian', 'Ubuntu']
+
+    - name: 添加EPEL仓库 (CentOS/RHEL)
+      ansible.builtin.yum:
+        name: epel-release
+        state: present
+      when: os_info.ansible_distribution in ['CentOS', 'RedHat']
+
+    - name: 安装Nginx
+      package:
+        name: nginx
+        state: "{{ nginx_version if nginx_version != 'latest' else 'present' }}"
+      notify:
+        - 启动Nginx服务
+
+    - name: 配置防火墙规则
+      block:
+        - name: 开放HTTP/HTTPS端口 (firewalld)
+          ansible.posix.firewalld:
+            port: "{{ item }}/tcp"
+            permanent: yes
+            state: enabled
+          loop: "{{ allowed_ports }}"
+          when: ansible_facts.services['firewalld.service'] is defined
+
+        - name: 开放HTTP/HTTPS端口 (ufw)
+          community.general.ufw:
+            rule: allow
+            port: "{{ item }}"
+          loop: "{{ allowed_ports }}"
+          when: ansible_facts.services['ufw.service'] is defined
+
+      when: enable_firewall
+
+    - name: 配置SELinux
+      ansible.builtin.seboolean:
+        name: httpd_can_network_connect
+        state: yes
+        persistent: yes
+      when: ansible_facts.selinux.status == "enabled"
+
+    - name: 验证Nginx安装
+      ansible.builtin.uri:
+        url: "http://localhost"
+        return_content: yes
+      register: nginx_test
+      until: nginx_test.status == 200
+      retries: 5
+      delay: 3
+
+  handlers:
+    - name: 启动Nginx服务
+      ansible.builtin.service:
+        name: nginx
+        state: restarted
+        enabled: yes
+
+    - name: 重载防火墙规则
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: reloaded
+      loop: 
+        - firewalld
+        - ufw
+      when: enable_firewall
