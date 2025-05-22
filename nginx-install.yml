@@ -18,7 +18,6 @@
         name:
           - epel-release
           - yum-utils
-          - policycoreutils-python  # 用于SELinux管理
         state: present
         update_cache: yes
 
