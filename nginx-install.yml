@@ -48,21 +48,6 @@
       notify:
         - 重启Nginx服务
 
-    - name: 添加SELinux端口例外
-      seport:
-        ports: "{{ nginx_port }}"
-        proto: tcp
-        setype: http_port_t
-        state: present
-      when: ansible_selinux.status == "enabled"
-
-    - name: 配置SELinux网络权限
-      seboolean:
-        name: httpd_can_network_connect
-        state: yes
-        persistent: yes
-      when: ansible_selinux.status == "enabled"
-
     - name: 验证服务状态
       uri:
         url: "http://localhost:{{ nginx_port }}"
