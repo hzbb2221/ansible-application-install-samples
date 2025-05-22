@@ -1,5 +1,5 @@
 ---
-- name: CentOS 7 Nginx安全配置
+- name: CentOS 7 Nginx安装
   hosts: all
   become: yes
   vars:
@@ -7,38 +7,44 @@
     nginx_conf: "/etc/nginx/conf.d/default.conf"
 
   tasks:
-    - name: 确保防火墙已关闭
+    # 禁用防火墙（确保完全关闭）
+    - name: 停止并禁用firewalld
       service:
         name: firewalld
         state: stopped
         enabled: no
 
-    - name: 安装基础依赖
+    # 安装基础依赖
+    - name: 安装EPEL仓库和工具
       yum:
         name:
           - epel-release
           - yum-utils
+          - vim
         state: present
         update_cache: yes
 
+    # 配置Nginx官方仓库
     - name: 添加Nginx官方仓库
       yum_repository:
         name: nginx-stable
-        description: Nginx Stable Repo
+        description: Nginx Stable Repository
         baseurl: http://nginx.org/packages/centos/7/$basearch/
         gpgcheck: yes
         gpgkey: https://nginx.org/keys/nginx_signing.key
         enabled: yes
 
-    - name: 安装Nginx
+    # 安装Nginx
+    - name: 安装Nginx软件包
       yum:
         name: nginx
         state: present
-        enablerepo: "nginx-stable,epel"
+        enablerepo: nginx-stable,epel
       notify:
-        - 重启Nginx服务
+        - 启动Nginx服务
 
-    - name: 创建配置备份
+    # 配置管理
+    - name: 备份原始配置
       copy:
         src: "{{ nginx_conf }}"
         dest: "{{ nginx_conf }}.bak"
@@ -46,26 +52,42 @@
 
     - name: 精确修改监听端口
       block:
-        - name: 定位并修改监听端口
+        - name: 替换端口配置
           replace:
             path: "{{ nginx_conf }}"
-            regexp: '^(\s*listen\s+)80(;\s*#.*)?$'
-            replace: '\1{{ nginx_port }}\2'
+            # 匹配所有listen指令（含不同缩进格式）
+            regexp: '^(\s*)listen(\s+)(\d+)(\s*;.*)$'
+            replace: '\1listen\2{{ nginx_port }}\4'
             validate: "/usr/sbin/nginx -t -c %s"
+          register: config_change
 
-        - name: 验证配置有效性
-          command: nginx -t
-          register: nginx_check
+        - name: 显示配置差异
+          command: diff -u {{ nginx_conf }}.bak {{ nginx_conf }}
+          register: diff_result
           changed_when: false
+          when: config_change.changed
 
-        - name: 显示配置错误详情
+        - name: 打印配置变更
           debug:
-            var: nginx_check.stderr_lines
-          when: nginx_check.rc != 0
+            msg: "配置修改差异:\n{{ diff_result.stdout }}"
+          when: diff_result.stdout != ""
 
-      notify: 重启Nginx服务
+      notify:
+        - 重启Nginx服务
 
-    - name: 验证服务状态
+    # 验证步骤
+    - name: 检查Nginx语法
+      command: nginx -t
+      changed_when: false
+
+    - name: 验证端口监听状态
+      wait_for:
+        port: "{{ nginx_port }}"
+        timeout: 30
+        delay: 3
+        state: started
+
+    - name: 最终服务验证
       uri:
         url: "http://localhost:{{ nginx_port }}"
         return_content: yes
@@ -75,8 +97,13 @@
       delay: 3
 
   handlers:
+    - name: 启动Nginx服务
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+
     - name: 重启Nginx服务
       service:
         name: nginx
         state: restarted
-        enabled: yes
