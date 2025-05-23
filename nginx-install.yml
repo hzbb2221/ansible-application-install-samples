@@ -27,7 +27,7 @@
         remote_src: yes
 
     - name: 精确修改监听端口
-        shell: "sed -i 's/\(listen\s*\)80;/\110080;/' {{ nginx_conf }}"
+        shell: "sed -i 's/\(listen\s*\)80;/\110080;/'" "{{ nginx_conf }}"
       args:
         warn: no
       register: sed_result
