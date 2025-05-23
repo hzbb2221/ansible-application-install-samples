@@ -27,13 +27,7 @@
         remote_src: yes
 
     - name: 精确修改监听端口
-      shell: |
-        # 精确匹配缩进格式和分号
-        sed -r -i.bak \
-        '/^    server {/,/^    }/ {
-            s/^( {4}listen {7})80(;.*)$/\1{{ target_port }}\2/
-            s/^( {4}listen {3,})80(;.*)$/\1{{ target_port }}\2/
-        }' "{{ nginx_conf }}"
+	      shell: "sed -i 's/\(listen\s*\)80;/\110080;/' {{ nginx_conf }}"
       args:
         warn: no
       register: sed_result
