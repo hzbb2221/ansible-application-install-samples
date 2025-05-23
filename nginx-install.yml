@@ -27,13 +27,15 @@
         remote_src: yes
 
     - name: 精确修改监听端口
-      shell: |
-        sed -i 's/\\(listen\\s*\\)80;/\\110080;/'  "{{ nginx_conf }}"
+      shell: 
+        cmd: "sed -i 's/\\(listen[[:space:]]\\+\\)80;/\\110080;/' {{ nginx_conf }}"
+        warn: false  # 明确关闭警告（Ansible >= 2.5）
       args:
-        warn: no
+        executable: /bin/bash
       register: sed_result
-      changed_when: "'已修改' in sed_result.stdout"
-      check_mode: no
+      changed_when:  # 通过返回值或文件检查判断变更
+        - sed_result.rc == 0
+        - "'10080;' not in lookup('file', nginx_conf)"
 
     # 验证配置
     - name: 检查配置语法
