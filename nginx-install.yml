@@ -1,5 +1,5 @@
 ---
-- name: 使用sed安全修改Nginx端口
+- name: 安装Nginx
   hosts: all
   become: yes
   vars:
@@ -26,31 +26,21 @@
         dest: "{{ nginx_conf }}.bak"
         remote_src: yes
 
-    - name: 精确修改监听端口
-      shell: 
-        cmd: "sed -i 's/\\(listen[[:space:]]\\+\\)80;/\\110080;/' {{ nginx_conf }}"
-        warn: false  # 明确关闭警告（Ansible >= 2.5）
-      args:
-        executable: /bin/bash
-      register: sed_result
-      changed_when:  # 通过返回值或文件检查判断变更
-        - sed_result.rc == 0
-        - "'10080;' not in lookup('file', nginx_conf)"
-
-    # 验证配置
-    - name: 检查配置语法
-      command: nginx -t
-      register: nginx_check
-      changed_when: false
-      failed_when: nginx_check.rc != 0
-
-    - name: 验证端口修改
+    - name: 修改监听端口
       lineinfile:
         path: "{{ nginx_conf }}"
-        regexp: '^ {4}listen {{ target_port }};'
-        state: present
-      check_mode: yes
+        regexp: '^listen\s+(80)(\s|;|$)'
+        line: 'listen {{ target_port }}\2'
+        backrefs: yes
+      notify:
+        - 重启Nginx
+        - 验证配置语法
+
+    # 验证配置
+    - name: 验证配置语法
+      command: nginx -t
       changed_when: false
+      listen: 验证配置语法
 
     # 服务管理
     - name: 检查Nginx状态
@@ -64,3 +54,8 @@
       service:
         name: nginx
         state: restarted
+
+    - name: 验证配置语法
+      command: nginx -t
+      changed_when: false
+      listen: 验证配置语法
