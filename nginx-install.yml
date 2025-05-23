@@ -20,42 +20,23 @@
       notify: 重启Nginx
 
     # 配置管理
-    - name: 创建配置备份
-      copy:
-        src: "{{ nginx_conf }}"
-        dest: "{{ nginx_conf }}.bak"
-        remote_src: yes
-
-    - name: 修改监听端口
-      lineinfile:
+    - name: 精确修改监听端口
+      replace:
         path: "{{ nginx_conf }}"
-        regexp: '^listen\s+(80)(\s|;|$)'
-        line: 'listen {{ target_port }}\2'
-        backrefs: yes
-      notify:
-        - 重启Nginx
-        - 验证配置语法
+        regexp: 'listen\s+80;'
+        replace: 'listen {{ target_port }};'
+        backup: yes
+      notify: 重启Nginx
 
     # 验证配置
-    - name: 验证配置语法
+    - name: 检查配置语法
       command: nginx -t
+      register: nginx_check
       changed_when: false
-      listen: 验证配置语法
-
-    # 服务管理
-    - name: 检查Nginx状态
-      service:
-        name: nginx
-        state: restarted
-      when: sed_result.changed
+      failed_when: nginx_check.rc != 0
 
   handlers:
     - name: 重启Nginx
       service:
         name: nginx
         state: restarted
-
-    - name: 验证配置语法
-      command: nginx -t
-      changed_when: false
-      listen: 验证配置语法
