@@ -4,7 +4,7 @@
   become: yes
   vars:
     target_port: 10080
-    nginx_conf: "/etc/nginx/conf.d/default.conf"
+    nginx_conf: "/etc/nginx/nginx.conf"
 
   tasks:
     # 安装Nginx
@@ -20,7 +20,7 @@
       notify: 重启Nginx
 
     # 配置管理
-    - name: 精确修改监听端口
+    - name: 修改监听端口
       replace:
         path: "{{ nginx_conf }}"
         regexp: 'listen\s+80;'
